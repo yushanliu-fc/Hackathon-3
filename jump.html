@@ -12,29 +12,33 @@
         body {
             font-family: 'Press Start 2P', cursive;
             touch-action: manipulation; /* Prevents double-tap to zoom on mobile */
+            background: linear-gradient(to bottom, #87CEEB 0%, #f7f7f7 70%);
+            overflow: hidden;
         }
         canvas {
-            background-color: #f7f7f7;
+            background-color: transparent;
             display: block;
             margin: 0 auto;
-            border-bottom: 2px solid #d4d4d4;
+        }
+        .game-ui {
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
         }
     </style>
 </head>
-<body class="bg-gray-100 flex items-center justify-center h-screen m-0 overflow-hidden">
+<body class="flex items-center justify-center h-screen m-0">
 
     <div id="game-container" class="text-center">
-        <div class="mb-4 text-2xl text-gray-700">
+        <div class="mb-4 text-2xl text-white game-ui">
             <span>SCORE:</span>
             <span id="score">0</span>
         </div>
-        <canvas id="gameCanvas" width="800" height="250"></canvas>
-        <div id="game-over-message" class="hidden mt-8 text-center">
-            <h2 class="text-4xl text-red-500">Game Over</h2>
-            <p class="text-lg text-gray-600 mt-2">Press 'R' or Tap to Restart</p>
+        <canvas id="gameCanvas" width="800" height="300"></canvas>
+        <div id="game-over-message" class="hidden mt-8 text-center game-ui">
+            <h2 class="text-5xl text-red-500" style="text-shadow: 3px 3px #000;">Game Over</h2>
+            <p class="text-xl text-gray-800 mt-4">Press 'R' or Tap to Restart</p>
         </div>
-        <div id="start-message" class="mt-8 text-center">
-             <p class="text-lg text-gray-600">Press Space or Tap to Start</p>
+        <div id="start-message" class="mt-8 text-center game-ui">
+             <p class="text-xl text-gray-800">Press Space or Tap to Start</p>
         </div>
     </div>
 
@@ -46,17 +50,18 @@
         const startMessage = document.getElementById('start-message');
 
         // --- Game Constants ---
-        const GROUND_Y = canvas.height - 50;
+        const GROUND_Y = canvas.height - 70;
         const CAR_HEIGHT = 40;
-        const CAR_WIDTH = 70;
-        const JUMP_FORCE = 15;
+        const CAR_WIDTH = 80;
+        const JUMP_FORCE = 16;
         const GRAVITY = 0.8;
-        const MIN_OBSTACLE_SPAWN_TIME = 70; // min frames between obstacles
-        const MAX_OBSTACLE_SPAWN_TIME = 150; // max frames between obstacles
-        let OBSTACLE_SPEED = 5;
+        const MIN_OBSTACLE_SPAWN_TIME = 75; 
+        const MAX_OBSTACLE_SPAWN_TIME = 160;
+        let OBSTACLE_SPEED = 6;
 
         // --- Game State ---
         let car, obstacles, score, gameSpeed, obstacleTimer, isGameOver, gameStarted;
+        let clouds, roadLineOffset;
 
         // --- Player (The Car) ---
         class Car {
@@ -66,26 +71,44 @@
                 this.baseY = y;
                 this.width = width;
                 this.height = height;
-                this.dy = 0; // Vertical velocity
+                this.dy = 0;
                 this.jumpPower = JUMP_FORCE;
                 this.isJumping = false;
             }
 
             draw() {
-                // Car Body
-                ctx.fillStyle = '#FFD700'; // Yellow
-                ctx.fillRect(this.x, this.y, this.width, this.height);
-                
-                // Car Roof
-                ctx.fillStyle = '#FFC700';
-                ctx.fillRect(this.x + 10, this.y - 10, this.width - 20, 10);
+                // Add shadow
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.2)';
+                ctx.shadowBlur = 10;
+                ctx.shadowOffsetX = 5;
+                ctx.shadowOffsetY = 5;
 
                 // Wheels
                 ctx.fillStyle = '#333';
                 ctx.beginPath();
-                ctx.arc(this.x + 15, this.y + this.height, 8, 0, Math.PI * 2);
-                ctx.arc(this.x + this.width - 15, this.y + this.height, 8, 0, Math.PI * 2);
+                ctx.arc(this.x + 20, this.y + this.height, 10, 0, Math.PI * 2);
+                ctx.arc(this.x + this.width - 20, this.y + this.height, 10, 0, Math.PI * 2);
                 ctx.fill();
+
+                // Car Body
+                ctx.fillStyle = '#FFD700';
+                ctx.fillRect(this.x, this.y, this.width, this.height - 5);
+                
+                // Car Roof/Window
+                ctx.fillStyle = '#FFC700';
+                ctx.beginPath();
+                ctx.moveTo(this.x + 10, this.y);
+                ctx.lineTo(this.x + 25, this.y - 15);
+                ctx.lineTo(this.x + this.width - 25, this.y - 15);
+                ctx.lineTo(this.x + this.width - 10, this.y);
+                ctx.closePath();
+                ctx.fill();
+
+                // Reset shadow
+                ctx.shadowColor = 'transparent';
+                ctx.shadowBlur = 0;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 0;
             }
 
             update() {
@@ -94,7 +117,6 @@
                     this.y += this.dy;
                 }
 
-                // Prevent falling through the ground
                 if (this.y + this.height > GROUND_Y) {
                     this.y = GROUND_Y - this.height;
                     this.dy = 0;
@@ -122,7 +144,17 @@
             }
 
             draw() {
-                // Cone Body (Orange)
+                const stripeHeight = this.height / 3;
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.15)';
+                ctx.shadowBlur = 8;
+                ctx.shadowOffsetX = 3;
+                ctx.shadowOffsetY = 3;
+
+                // Base of the cone
+                ctx.fillStyle = '#E63E00';
+                ctx.fillRect(this.x - 4, this.y + this.height, this.width + 8, 7);
+
+                // Main cone shape (Orange)
                 ctx.fillStyle = '#FF4500'; 
                 ctx.beginPath();
                 ctx.moveTo(this.x + this.width / 2, this.y);
@@ -131,9 +163,42 @@
                 ctx.closePath();
                 ctx.fill();
 
-                // Cone Base
-                ctx.fillStyle = '#E63E00';
-                ctx.fillRect(this.x - 2, this.y + this.height, this.width + 4, 5);
+                // White stripe
+                ctx.fillStyle = 'white';
+                ctx.beginPath();
+                ctx.moveTo(this.x + this.width * 0.2, this.y + stripeHeight);
+                ctx.lineTo(this.x + this.width * 0.8, this.y + stripeHeight);
+                ctx.lineTo(this.x + this.width * 0.65, this.y + stripeHeight * 1.5);
+                ctx.lineTo(this.x + this.width * 0.35, this.y + stripeHeight * 1.5);
+                ctx.closePath();
+                ctx.fill();
+                
+                ctx.shadowColor = 'transparent';
+            }
+
+            update() {
+                this.x -= this.speed;
+                this.draw();
+            }
+        }
+
+        // --- Background Elements ---
+        class Cloud {
+            constructor(x, y, radius, speed) {
+                this.x = x;
+                this.y = y;
+                this.radius = radius;
+                this.speed = speed;
+            }
+
+            draw() {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.arc(this.x + this.radius * 1.2, this.y - this.radius * 0.2, this.radius * 1.2, 0, Math.PI * 2);
+                ctx.arc(this.x - this.radius, this.y + this.radius * 0.1, this.radius * 0.9, 0, Math.PI * 2);
+                ctx.closePath();
+                ctx.fill();
             }
 
             update() {
@@ -146,19 +211,25 @@
         function init() {
             car = new Car(50, GROUND_Y - CAR_HEIGHT, CAR_WIDTH, CAR_HEIGHT);
             obstacles = [];
+            clouds = [];
             score = 0;
-            obstacleTimer = 0;
+            obstacleTimer = 150; // Start with a delay
             gameSpeed = OBSTACLE_SPEED;
+            roadLineOffset = 0;
             isGameOver = false;
             gameStarted = false;
+
+            for(let i = 0; i < 5; i++) {
+                spawnCloud(true);
+            }
 
             scoreElement.textContent = '0';
             gameOverMessage.classList.add('hidden');
             startMessage.classList.remove('hidden');
-
-            // Draw initial state
+            
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            drawGround();
+            drawRoad();
+            clouds.forEach(cloud => cloud.draw());
             car.draw();
         }
 
@@ -168,67 +239,88 @@
 
             requestAnimationFrame(animate);
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            drawGround();
             
-            // --- Update & Draw Car ---
+            // Update and draw background elements
+            updateAndDrawClouds();
+            drawRoad();
+            
+            // Update & Draw Car
             car.update();
 
-            // --- Obstacle Logic ---
+            // Obstacle Logic
             obstacleTimer++;
             if (obstacleTimer > (Math.random() * (MAX_OBSTACLE_SPAWN_TIME - MIN_OBSTACLE_SPAWN_TIME) + MIN_OBSTACLE_SPAWN_TIME)) {
                 spawnObstacle();
                 obstacleTimer = 0;
             }
             
-            // Update, draw, and check collision for each obstacle
             for (let i = obstacles.length - 1; i >= 0; i--) {
                 let o = obstacles[i];
                 o.update();
+                if (o.x + o.width < 0) obstacles.splice(i, 1);
 
-                // Remove obstacles that go off-screen
-                if (o.x + o.width < 0) {
-                    obstacles.splice(i, 1);
-                }
-
-                // Collision Detection
-                if (
-                    car.x < o.x + o.width &&
-                    car.x + car.width > o.x &&
-                    car.y < o.y + o.height &&
-                    car.y + car.height > o.y
-                ) {
+                if (car.x < o.x + o.width && car.x + car.width > o.x && car.y < o.y + o.height && car.y + car.height > o.y) {
                     endGame();
                 }
             }
 
-            // --- Update Score ---
+            // Update Score & Speed
             score++;
             scoreElement.textContent = score;
-            
-            // Increase speed over time
-            if (score % 100 === 0) {
-                gameSpeed += 0.2;
-                 obstacles.forEach(o => o.speed = gameSpeed);
+            if (score > 0 && score % 150 === 0) {
+                gameSpeed += 0.3;
             }
         }
 
-        function drawGround() {
-            ctx.strokeStyle = '#d4d4d4';
-            ctx.lineWidth = 2;
+        // --- Drawing Functions ---
+        function drawRoad() {
+            // Road surface
+            ctx.fillStyle = '#6B6B6B';
+            ctx.fillRect(0, GROUND_Y, canvas.width, canvas.height - GROUND_Y);
+
+            // Dashed line
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 5;
+            ctx.setLineDash([30, 40]); // length of dash, length of space
+            roadLineOffset -= gameSpeed;
+            if (roadLineOffset < -70) roadLineOffset = 0;
+            ctx.lineDashOffset = roadLineOffset;
+
             ctx.beginPath();
-            ctx.moveTo(0, GROUND_Y);
-            ctx.lineTo(canvas.width, GROUND_Y);
+            ctx.moveTo(0, GROUND_Y + 30);
+            ctx.lineTo(canvas.width, GROUND_Y + 30);
             ctx.stroke();
+            ctx.setLineDash([]); // Reset line dash
         }
 
+        function updateAndDrawClouds() {
+            for (let i = clouds.length - 1; i >= 0; i--) {
+                let c = clouds[i];
+                c.update();
+                if (c.x + c.radius * 2.5 < 0) {
+                    clouds.splice(i, 1);
+                    spawnCloud(false);
+                }
+            }
+        }
+
+        // --- Spawning Functions ---
         function spawnObstacle() {
-            const coneHeight = 30 + Math.random() * 20;
-            const coneWidth = 20;
+            const coneHeight = 35 + Math.random() * 20;
+            const coneWidth = 25;
             const obstacle = new Obstacle(canvas.width, GROUND_Y - coneHeight, coneWidth, coneHeight, gameSpeed);
             obstacles.push(obstacle);
         }
 
+        function spawnCloud(isInitial) {
+            const x = isInitial ? Math.random() * canvas.width : canvas.width + Math.random() * 200;
+            const y = 20 + Math.random() * (canvas.height / 3);
+            const radius = 20 + Math.random() * 20;
+            const speed = 0.5 + Math.random() * 0.5;
+            clouds.push(new Cloud(x, y, radius, speed));
+        }
+
+        // --- Game State Functions ---
         function startGame() {
             if (!gameStarted) {
                 gameStarted = true;
@@ -246,36 +338,21 @@
         // --- Event Listeners ---
         document.addEventListener('keydown', (e) => {
             if (e.code === 'Space') {
-                e.preventDefault(); // Prevent page scrolling
-                if (!gameStarted) {
-                    startGame();
-                } else if (!isGameOver) {
-                    car.jump();
-                }
+                e.preventDefault();
+                if (!gameStarted) startGame();
+                else if (!isGameOver) car.jump();
             }
-            if (e.code === 'KeyR' && isGameOver) {
-                init();
-            }
+            if (e.code === 'KeyR' && isGameOver) init();
         });
         
-        // Touch controls for mobile
         canvas.addEventListener('touchstart', (e) => {
              e.preventDefault();
-             if (!gameStarted) {
-                startGame();
-             } else if (!isGameOver) {
-                 car.jump();
-             } else {
-                 init();
-             }
+             if (!gameStarted) startGame();
+             else if (!isGameOver) car.jump();
+             else init();
         });
         
-        gameOverMessage.addEventListener('click', () => {
-            if (isGameOver) {
-                init();
-            }
-        });
-
+        gameOverMessage.addEventListener('click', () => { if (isGameOver) init(); });
 
         // Initial setup call
         init();
