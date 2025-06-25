@@ -172,7 +172,7 @@
             car = new Car(50, GROUND_HEIGHT - CAR_HEIGHT, CAR_WIDTH, CAR_HEIGHT);
             obstacles = [];
             score = 0;
-            gameSpeed = 1;
+            gameSpeed = 5;
             gameOver = false;
             gameStarted = false;
             instructions.style.display = 'block';
@@ -274,7 +274,7 @@
         function handleInput() {
              if (gameOver) {
                 init();
-                // animate();
+                animate();
                 return;
             }
             if (!gameStarted) {
