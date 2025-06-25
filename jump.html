@@ -55,13 +55,17 @@
         const CAR_WIDTH = 80;
         const JUMP_FORCE = 16;
         const GRAVITY = 0.8;
-        const MIN_OBSTACLE_SPAWN_TIME = 75; 
-        const MAX_OBSTACLE_SPAWN_TIME = 160;
-        let OBSTACLE_SPEED = 6;
+        // Time-based spawn rates in milliseconds
+        const MIN_OBSTACLE_SPAWN_TIME = 1200; 
+        const MAX_OBSTACLE_SPAWN_TIME = 2600;
+        // Speed in pixels per second
+        let INITIAL_OBSTACLE_SPEED = 360; // 6 pixels/frame * 60 fps = 360 px/s
 
         // --- Game State ---
         let car, obstacles, score, gameSpeed, obstacleTimer, isGameOver, gameStarted;
         let clouds, roadLineOffset;
+        let lastTime = 0;
+        let scoreAccumulator = 0;
 
         // --- Player (The Car) ---
         class Car {
@@ -111,10 +115,11 @@
                 ctx.shadowOffsetY = 0;
             }
 
-            update() {
+            update(delta) {
                 if (this.isJumping) {
-                    this.dy += GRAVITY;
-                    this.y += this.dy;
+                    // Apply gravity based on delta time for consistent physics
+                    this.dy += GRAVITY * delta;
+                    this.y += this.dy * delta;
                 }
 
                 if (this.y + this.height > GROUND_Y) {
@@ -135,12 +140,11 @@
 
         // --- Obstacles (Traffic Cones) ---
         class Obstacle {
-            constructor(x, y, width, height, speed) {
+            constructor(x, y, width, height) {
                 this.x = x;
                 this.y = y;
                 this.width = width;
                 this.height = height;
-                this.speed = speed;
             }
 
             draw() {
@@ -150,11 +154,8 @@
                 ctx.shadowOffsetX = 3;
                 ctx.shadowOffsetY = 3;
 
-                // Base of the cone
                 ctx.fillStyle = '#E63E00';
                 ctx.fillRect(this.x - 4, this.y + this.height, this.width + 8, 7);
-
-                // Main cone shape (Orange)
                 ctx.fillStyle = '#FF4500'; 
                 ctx.beginPath();
                 ctx.moveTo(this.x + this.width / 2, this.y);
@@ -162,8 +163,6 @@
                 ctx.lineTo(this.x + this.width, this.y + this.height);
                 ctx.closePath();
                 ctx.fill();
-
-                // White stripe
                 ctx.fillStyle = 'white';
                 ctx.beginPath();
                 ctx.moveTo(this.x + this.width * 0.2, this.y + stripeHeight);
@@ -176,8 +175,9 @@
                 ctx.shadowColor = 'transparent';
             }
 
-            update() {
-                this.x -= this.speed;
+            update(delta) {
+                // Move based on global game speed and delta time
+                this.x -= gameSpeed * delta;
                 this.draw();
             }
         }
@@ -188,7 +188,7 @@
                 this.x = x;
                 this.y = y;
                 this.radius = radius;
-                this.speed = speed;
+                this.speed = speed; // pixels per second
             }
 
             draw() {
@@ -201,8 +201,8 @@
                 ctx.fill();
             }
 
-            update() {
-                this.x -= this.speed;
+            update(delta) {
+                this.x -= this.speed * delta;
                 this.draw();
             }
         }
@@ -213,11 +213,13 @@
             obstacles = [];
             clouds = [];
             score = 0;
-            obstacleTimer = 150; // Start with a delay
-            gameSpeed = OBSTACLE_SPEED;
+            scoreAccumulator = 0;
+            obstacleTimer = MAX_OBSTACLE_SPAWN_TIME; // Start with a delay
+            gameSpeed = INITIAL_OBSTACLE_SPEED;
             roadLineOffset = 0;
             isGameOver = false;
             gameStarted = false;
+            lastTime = 0; // Reset lastTime for the new game loop
 
             for(let i = 0; i < 5; i++) {
                 spawnCloud(true);
@@ -228,35 +230,44 @@
             startMessage.classList.remove('hidden');
             
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            drawRoad();
+            drawRoad(0);
             clouds.forEach(cloud => cloud.draw());
             car.draw();
         }
 
         // --- Game Loop ---
-        function animate() {
+        function animate(timestamp) {
             if (isGameOver) return;
+
+            // --- DELTA TIME CALCULATION ---
+            // This is the core of the frame-rate independent logic
+            if (lastTime === 0) {
+                lastTime = timestamp;
+            }
+            const deltaTime = (timestamp - lastTime) / 1000; // time in seconds
+            lastTime = timestamp;
+            // A multiplier to keep physics values (like gravity) sensible
+            const deltaMultiplier = deltaTime * 60;
+
 
             requestAnimationFrame(animate);
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             
-            // Update and draw background elements
-            updateAndDrawClouds();
-            drawRoad();
-            
-            // Update & Draw Car
-            car.update();
+            // --- UPDATES ---
+            updateAndDrawClouds(deltaMultiplier);
+            drawRoad(deltaMultiplier);
+            car.update(deltaMultiplier);
 
             // Obstacle Logic
-            obstacleTimer++;
-            if (obstacleTimer > (Math.random() * (MAX_OBSTACLE_SPAWN_TIME - MIN_OBSTACLE_SPAWN_TIME) + MIN_OBSTACLE_SPAWN_TIME)) {
+            obstacleTimer -= deltaTime * 1000; // timer in milliseconds
+            if (obstacleTimer <= 0) {
                 spawnObstacle();
-                obstacleTimer = 0;
+                obstacleTimer = Math.random() * (MAX_OBSTACLE_SPAWN_TIME - MIN_OBSTACLE_SPAWN_TIME) + MIN_OBSTACLE_SPAWN_TIME;
             }
             
             for (let i = obstacles.length - 1; i >= 0; i--) {
                 let o = obstacles[i];
-                o.update();
+                o.update(deltaTime); // Pass time in seconds
                 if (o.x + o.width < 0) obstacles.splice(i, 1);
 
                 if (car.x < o.x + o.width && car.x + car.width > o.x && car.y < o.y + o.height && car.y + car.height > o.y) {
@@ -265,24 +276,25 @@
             }
 
             // Update Score & Speed
-            score++;
+            scoreAccumulator += deltaTime * 10;
+            score = Math.floor(scoreAccumulator);
             scoreElement.textContent = score;
-            if (score > 0 && score % 150 === 0) {
-                gameSpeed += 0.3;
-            }
+
+            // Increase speed based on score (time)
+            gameSpeed = INITIAL_OBSTACLE_SPEED + (score * 2);
+
         }
 
         // --- Drawing Functions ---
-        function drawRoad() {
-            // Road surface
+        function drawRoad(delta) {
             ctx.fillStyle = '#6B6B6B';
             ctx.fillRect(0, GROUND_Y, canvas.width, canvas.height - GROUND_Y);
 
-            // Dashed line
             ctx.strokeStyle = '#FFFFFF';
             ctx.lineWidth = 5;
-            ctx.setLineDash([30, 40]); // length of dash, length of space
-            roadLineOffset -= gameSpeed;
+            ctx.setLineDash([30, 40]);
+            // Use game speed and delta for consistent line movement
+            roadLineOffset -= (gameSpeed / 60) * delta;
             if (roadLineOffset < -70) roadLineOffset = 0;
             ctx.lineDashOffset = roadLineOffset;
 
@@ -290,13 +302,14 @@
             ctx.moveTo(0, GROUND_Y + 30);
             ctx.lineTo(canvas.width, GROUND_Y + 30);
             ctx.stroke();
-            ctx.setLineDash([]); // Reset line dash
+            ctx.setLineDash([]);
         }
 
-        function updateAndDrawClouds() {
+        function updateAndDrawClouds(delta) {
             for (let i = clouds.length - 1; i >= 0; i--) {
                 let c = clouds[i];
-                c.update();
+                // Pass a smaller delta for a slower parallax effect
+                c.update(delta / (1000/60)); 
                 if (c.x + c.radius * 2.5 < 0) {
                     clouds.splice(i, 1);
                     spawnCloud(false);
@@ -308,7 +321,7 @@
         function spawnObstacle() {
             const coneHeight = 35 + Math.random() * 20;
             const coneWidth = 25;
-            const obstacle = new Obstacle(canvas.width, GROUND_Y - coneHeight, coneWidth, coneHeight, gameSpeed);
+            const obstacle = new Obstacle(canvas.width, GROUND_Y - coneHeight, coneWidth, coneHeight);
             obstacles.push(obstacle);
         }
 
@@ -316,7 +329,7 @@
             const x = isInitial ? Math.random() * canvas.width : canvas.width + Math.random() * 200;
             const y = 20 + Math.random() * (canvas.height / 3);
             const radius = 20 + Math.random() * 20;
-            const speed = 0.5 + Math.random() * 0.5;
+            const speed = 30 + Math.random() * 30; // Pixels per second
             clouds.push(new Cloud(x, y, radius, speed));
         }
 
@@ -325,7 +338,7 @@
             if (!gameStarted) {
                 gameStarted = true;
                 startMessage.classList.add('hidden');
-                animate();
+                requestAnimationFrame(animate); // Start the loop
             }
             car.jump();
         }
