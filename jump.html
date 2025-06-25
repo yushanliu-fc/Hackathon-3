@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yellow Car Jumper</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Press Start 2P', cursive;
+            background-color: #f7fafc;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+        #game-container {
+            border: 4px solid #4a5568;
+            border-radius: 0.5rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            position: relative;
+            background-color: #e2e8f0;
+            overflow: hidden; /* Ensures nothing spills out */
+        }
+        canvas {
+            display: block;
+            background-color: transparent;
+        }
+        #instructions {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #2d3748;
+            text-align: center;
+            font-size: 1.25rem;
+            line-height: 1.5;
+            padding: 1rem;
+            background-color: rgba(255, 255, 255, 0.8);
+            border-radius: 0.5rem;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center h-screen">
+
+    <div id="game-container" class="bg-gray-200">
+        <canvas id="gameCanvas"></canvas>
+        <div id="instructions">
+            <p>Press SPACE or Tap to Jump</p>
+        </div>
+    </div>
+
+    <script>
+        // --- Game Setup ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const instructions = document.getElementById('instructions');
+
+        let gameWidth = window.innerWidth * 0.9;
+        let gameHeight = window.innerHeight * 0.6;
+
+        if (gameWidth > 800) gameWidth = 800;
+        if (gameHeight > 400) gameHeight = 400;
+
+        canvas.width = gameWidth;
+        canvas.height = gameHeight;
+        
+        // --- Game Variables ---
+        let car, obstacles, score, highScore = 0, gameSpeed, gameOver, keys = {};
+        let gameStarted = false;
+
+        // Constants
+        const GRAVITY = 0.6;
+        const JUMP_FORCE = -12;
+        const GROUND_HEIGHT = gameHeight - 70;
+        const CAR_WIDTH = 60;
+        const CAR_HEIGHT = 30;
+        const OBSTACLE_MIN_GAP = 250;
+        const OBSTACLE_MAX_GAP = 600;
+
+        // --- Game Objects ---
+
+        // The Player's Car
+        class Car {
+            constructor(x, y, w, h) {
+                this.x = x;
+                this.y = y;
+                this.w = w;
+                this.h = h;
+                this.dy = 0; // vertical velocity
+                this.jumpTimer = 0;
+                this.grounded = true;
+            }
+
+            draw() {
+                // Car Body
+                ctx.fillStyle = '#fbbF24'; // A nice yellow color
+                ctx.fillRect(this.x, this.y, this.w, this.h);
+                
+                // Roof
+                ctx.fillStyle = '#facc15';
+                ctx.fillRect(this.x + 10, this.y - 10, this.w - 20, 10);
+                
+                // Wheels
+                ctx.fillStyle = '#2d3748';
+                ctx.beginPath();
+                ctx.arc(this.x + 15, this.y + this.h, 8, 0, Math.PI * 2);
+                ctx.arc(this.x + this.w - 15, this.y + this.h, 8, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            update() {
+                // Apply gravity
+                if (!this.grounded) {
+                    this.dy += GRAVITY;
+                }
+                this.y += this.dy;
+
+                // Prevent falling through the ground
+                if (this.y + this.h > GROUND_HEIGHT) {
+                    this.y = GROUND_HEIGHT - this.h;
+                    this.dy = 0;
+                    this.grounded = true;
+                }
+            }
+
+            jump() {
+                if (this.grounded) {
+                    this.dy = JUMP_FORCE;
+                    this.grounded = false;
+                }
+            }
+        }
+
+        // Obstacles (Traffic Cones)
+        class Obstacle {
+            constructor(x, w, h) {
+                this.x = x;
+                this.y = GROUND_HEIGHT - h;
+                this.w = w;
+                this.h = h;
+            }
+
+            draw() {
+                // Cone Body (Orange)
+                ctx.fillStyle = '#f97316';
+                ctx.beginPath();
+                ctx.moveTo(this.x + this.w / 2, this.y);
+                ctx.lineTo(this.x, this.y + this.h);
+                ctx.lineTo(this.x + this.w, this.y + this.h);
+                ctx.closePath();
+                ctx.fill();
+
+                // Cone Stripes (White)
+                ctx.fillStyle = 'white';
+                ctx.fillRect(this.x, this.y + this.h * 0.3, this.w, this.h * 0.15);
+                ctx.fillRect(this.x, this.y + this.h * 0.6, this.w, this.h * 0.15);
+            }
+
+            update() {
+                this.x -= gameSpeed;
+            }
+        }
+        
+        // --- Game Logic ---
+        function init() {
+            car = new Car(50, GROUND_HEIGHT - CAR_HEIGHT, CAR_WIDTH, CAR_HEIGHT);
+            obstacles = [];
+            score = 0;
+            gameSpeed = 5;
+            gameOver = false;
+            gameStarted = false;
+            instructions.style.display = 'block';
+
+            // Spawn the first obstacle
+            spawnObstacle();
+        }
+
+        function spawnObstacle() {
+            const obstacleHeight = 30 + Math.random() * 20;
+            const obstacleWidth = 20;
+            const lastObstacleX = obstacles.length > 0 ? obstacles[obstacles.length - 1].x : gameWidth;
+            const newObstacleX = lastObstacleX + OBSTACLE_MIN_GAP + Math.random() * (OBSTACLE_MAX_GAP - OBSTACLE_MIN_GAP);
+            obstacles.push(new Obstacle(newObstacleX, obstacleWidth, obstacleHeight));
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Road
+            ctx.fillStyle = '#4a5568';
+            ctx.fillRect(0, GROUND_HEIGHT, canvas.width, gameHeight - GROUND_HEIGHT);
+
+            // Draw road markings
+            ctx.fillStyle = 'white';
+            for (let i = - (score % 40); i < canvas.width; i += 40) {
+                 ctx.fillRect(i, GROUND_HEIGHT + 20, 20, 4);
+            }
+
+            if (!gameStarted) {
+                car.draw();
+                return;
+            }
+
+            // Update and draw car
+            car.update();
+            car.draw();
+
+            // Update and draw obstacles
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                let o = obstacles[i];
+                o.update();
+                o.draw();
+
+                // Collision detection
+                if (
+                    car.x < o.x + o.w &&
+                    car.x + car.w > o.x &&
+                    car.y < o.y + o.h &&
+                    car.y + car.h > o.y
+                ) {
+                    gameOver = true;
+                    if (score > highScore) {
+                        highScore = Math.floor(score);
+                    }
+                }
+                
+                // Remove off-screen obstacles
+                if (o.x + o.w < 0) {
+                    obstacles.splice(i, 1);
+                    spawnObstacle();
+                }
+            }
+            
+            // Update Score
+            score += 0.1;
+            gameSpeed += 0.001; // Gradually increase speed
+            drawScore();
+
+            if (gameOver) {
+                drawGameOver();
+                return;
+            }
+        }
+        
+        // --- Drawing UI ---
+        function drawScore() {
+            ctx.fillStyle = '#2d3748';
+            ctx.font = '20px "Press Start 2P"';
+            ctx.textAlign = 'right';
+            ctx.fillText(`HI ${String(Math.floor(highScore)).padStart(5, '0')}`, canvas.width - 20, 30);
+            ctx.fillText(String(Math.floor(score)).padStart(5, '0'), canvas.width - 20, 60);
+        }
+
+        function drawGameOver() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.fillStyle = 'white';
+            ctx.font = '30px "Press Start 2P"';
+            ctx.textAlign = 'center';
+            ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - 20);
+            ctx.font = '16px "Press Start 2P"';
+            ctx.fillText('Press any key to restart', canvas.width / 2, canvas.height / 2 + 20);
+        }
+        
+        // --- Event Handlers ---
+        function handleInput() {
+             if (gameOver) {
+                init();
+                animate();
+                return;
+            }
+            if (!gameStarted) {
+                gameStarted = true;
+                instructions.style.display = 'none';
+            }
+            car.jump();
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                handleInput();
+            }
+        });
+        
+        // Add a general keydown listener to restart after game over
+        document.addEventListener('keydown', (e) => {
+             if (gameOver) {
+                init();
+                // No need to call animate() again as it's already running
+            }
+        });
+        
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault(); // prevent double jump on some devices
+            handleInput();
+        });
+        
+        window.addEventListener('resize', () => {
+            gameWidth = window.innerWidth * 0.9;
+            gameHeight = window.innerHeight * 0.6;
+            if (gameWidth > 800) gameWidth = 800;
+            if (gameHeight > 400) gameHeight = 400;
+            canvas.width = gameWidth;
+            canvas.height = gameHeight;
+            // Re-initialize to adjust ground height etc., but keep high score
+            const currentHighScore = highScore;
+            init();
+            highScore = currentHighScore;
+            drawScore();
+        });
+
+        // --- Start Game ---
+        window.onload = function() {
+            init();
+            animate();
+        };
+
+    </script>
+</body>
+</html>
